@@ -120,7 +120,7 @@ export default function HomePage() {
                 className="hidden"
               />
               
-              <label htmlFor="file-input" className="cursor-pointer">
+              <label htmlFor="file-input" className="cursor-pointer block">
                 <div className="mb-6">
                   <svg className="mx-auto h-24 w-24 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
@@ -132,12 +132,9 @@ export default function HomePage() {
                 <p className="text-gray-500 mb-6">
                   or click to browse
                 </p>
-                <button 
-                  type="button"
-                  className="px-8 py-3 bg-purple-600 text-white font-semibold rounded-lg hover:bg-purple-700 transition-colors"
-                >
+                <span className="inline-block px-8 py-3 bg-purple-600 text-white font-semibold rounded-lg hover:bg-purple-700 transition-colors">
                   Browse Files
-                </button>
+                </span>
               </label>
             </div>
           </div>
