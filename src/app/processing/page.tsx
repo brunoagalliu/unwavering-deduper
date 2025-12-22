@@ -16,7 +16,8 @@ interface ProcessedFile {
   originalCount: number;
   finalCount: number;
   dupesRemoved: number;
-  cleanCSV: string;
+  cleanCSV?: string;
+  blobUrl?: string | null;
   status: 'processing' | 'complete' | 'error';
 }
 
@@ -154,16 +155,32 @@ export default function ProcessingPage() {
   };
 
   const handleDownloadFile = (file: ProcessedFile) => {
-    const blob = new Blob([file.cleanCSV], { type: 'text/csv' });
-    downloadFile(blob, `clean_${file.name}`);
+    if (file.blobUrl) {
+      // Download from blob storage
+      window.open(file.blobUrl, '_blank');
+    } else {
+      // Fallback to old method (if blob URL doesn't exist)
+      const blob = new Blob([file.cleanCSV || ''], { type: 'text/csv' });
+      downloadFile(blob, `clean_${file.name}`);
+    }
   };
 
   const handleDownloadAll = async () => {
-    const filesForZip = processedFiles.map(f => ({
-      name: `clean_${f.name}`,
-      content: f.cleanCSV
-    }));
-
+    // Filter out files that don't have cleanCSV content
+    const filesForZip = processedFiles
+      .filter((f): f is ProcessedFile & { cleanCSV: string } => 
+        f.status === 'complete' && typeof f.cleanCSV === 'string' && f.cleanCSV.length > 0
+      )
+      .map(f => ({
+        name: `clean_${f.name}`,
+        content: f.cleanCSV
+      }));
+  
+    if (filesForZip.length === 0) {
+      alert('No files available to download');
+      return;
+    }
+  
     const zipBlob = await createZipFromFiles(filesForZip);
     downloadFile(zipBlob, `deduped_batch_${Date.now()}.zip`);
   };

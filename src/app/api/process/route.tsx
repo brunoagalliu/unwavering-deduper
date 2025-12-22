@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { query } from '@/lib/db';
 import { dedupeCSV, loadMasterSet, addPhonesToMasters, getOrCreateMasterList } from '@/lib/dedupe-engine';
+import { uploadProcessedBatch } from '@/lib/blob-storage';
 import Papa from 'papaparse';
 
-export const maxDuration = 300; // 5 minutes (requires Vercel Pro)
+export const maxDuration = 300;
 export const dynamic = 'force-dynamic';
 
 interface ProcessFileRequest {
@@ -29,6 +30,9 @@ export async function POST(request: NextRequest) {
 
     console.log(`Starting to process ${files.length} files`);
 
+    // Generate batch ID
+    const batchId = `batch_${Date.now()}`;
+
     // Load master sets for deduplication
     console.log('Loading master sets...');
     const scrubSet = await loadMasterSet(selectedMasters);
@@ -41,7 +45,7 @@ export async function POST(request: NextRequest) {
     const uniqueTags = [...new Set(files.map(f => f.tag))];
 
     // Process files in parallel batches
-    const PARALLEL_LIMIT = 3; // Process 3 files at once
+    const PARALLEL_LIMIT = 3;
     const processedFiles = [];
 
     console.log(`Processing files in batches of ${PARALLEL_LIMIT}...`);
@@ -97,15 +101,35 @@ export async function POST(request: NextRequest) {
 
     console.log(`All files processed. Total new unique numbers: ${batchNewNumbers.size}`);
 
+    // Upload processed files to Vercel Blob
+    console.log('Uploading files to blob storage...');
+    const filesToUpload = processedFiles
+      .filter(f => f.status === 'complete' && f.cleanCSV)
+      .map(f => ({
+        name: `clean_${f.name}`,
+        content: f.cleanCSV
+      }));
+
+    const uploadedBlobs = await uploadProcessedBatch(filesToUpload, batchId);
+    console.log(`Uploaded ${uploadedBlobs.length} files to blob storage`);
+
+    // Add blob URLs to processed files
+    const processedFilesWithUrls = processedFiles.map(file => {
+      const blob = uploadedBlobs.find(b => b.name === `clean_${file.name}`);
+      return {
+        ...file,
+        blobUrl: blob?.url || null,
+        cleanCSV: undefined, // Remove CSV content to reduce response size
+      };
+    });
+
     // Add new numbers to master lists
     console.log(`Adding ${batchNewNumbers.size} new numbers to master lists...`);
     
-    // Ensure all tag master lists exist
     for (const tag of uniqueTags) {
       await getOrCreateMasterList(tag);
     }
 
-    // Add to GLOBAL + all unique tags
     const mastersToUpdate = ['GLOBAL', ...uniqueTags];
     const uniquePhones = Array.from(batchNewNumbers);
     
@@ -119,23 +143,26 @@ export async function POST(request: NextRequest) {
     console.log('Logging processing job...');
     await query(`
       INSERT INTO processing_logs 
-      (batch_name, source_tag, files_processed, scrubbed_against, original_count, duplicates_removed, final_count)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      (batch_name, source_tag, files_processed, scrubbed_against, original_count, duplicates_removed, final_count, blob_urls)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `, [
-      `batch_${Date.now()}`,
+      batchId,
       uniqueTags.join(','),
       files.length,
       JSON.stringify(selectedMasters),
       totalOriginal,
       totalDupes,
-      totalFinal
+      totalFinal,
+      JSON.stringify(uploadedBlobs)
     ]);
 
     console.log('Processing complete!');
 
     return NextResponse.json({
       success: true,
-      processedFiles,
+      batchId,
+      processedFiles: processedFilesWithUrls,
+      blobUrls: uploadedBlobs,
       summary: {
         totalOriginal,
         totalDupes,
