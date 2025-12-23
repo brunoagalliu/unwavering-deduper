@@ -1,6 +1,6 @@
 import Papa from 'papaparse';
 import { query } from './db';
-import { normalizePhone, isValidPhone } from './phone-utils';
+import { normalizePhone, isValidUSPhone } from './phone-utils';
 
 interface DedupeResult {
   cleanRows: any[];
@@ -35,64 +35,67 @@ export async function loadMasterSet(tagNames: string[]): Promise<Set<string>> {
 
 
 export function dedupeCSV(
-    csvContent: string,
-    fileName: string,
-    scrubSet: Set<string>,
-    batchSeenNumbers: Set<string>,
-    phoneColumnName?: string
-  ): DedupeResult {
-    const cleanRows: any[] = [];
-    let originalCount = 0;
-    let dupesRemoved = 0;
+  csvContent: string,
+  fileName: string,
+  scrubSet: Set<string>,
+  batchSeenNumbers: Set<string>,
+  phoneColumnName?: string
+): DedupeResult {
+  const cleanRows: Record<string, unknown>[] = [];
+  let originalCount = 0;
+  let dupesRemoved = 0;
+  
+  const parsed = Papa.parse(csvContent, {
+    header: true,
+    skipEmptyLines: true,
+  });
+  
+  // Auto-detect phone column if not specified
+  if (!phoneColumnName && parsed.data.length > 0) {
+    const headers = Object.keys(parsed.data[0] as object);
+    phoneColumnName = headers.find(h => 
+      h.toLowerCase().includes('phone') || 
+      h.toLowerCase().includes('number') ||
+      h.toLowerCase().includes('mobile') ||
+      h.toLowerCase().includes('cell')
+    ) || headers[0];
     
-    const parsed = Papa.parse(csvContent, {
-      header: true,              // Treats first row as headers
-      skipEmptyLines: true,
-    });
-    
-    // Auto-detect phone column if not specified
-    if (!phoneColumnName && parsed.data.length > 0) {
-      const headers = Object.keys(parsed.data[0] as object);
-      phoneColumnName = headers.find(h => 
-        h.toLowerCase().includes('phone') || 
-        h.toLowerCase().includes('number') ||
-        h.toLowerCase().includes('mobile') ||
-        h.toLowerCase().includes('cell')
-      ) || headers[0];
-      
-      console.log(`Auto-detected phone column: ${phoneColumnName}`);
-    }
-    
-    for (const row of parsed.data) {
-      // Skip empty rows
-      if (!row || typeof row !== 'object') continue;
-      
-      originalCount++;
-      const phoneValue = (row as any)[phoneColumnName!];
-      
-      if (!phoneValue || phoneValue.trim() === '') {
-        dupesRemoved++; // Skip rows without phone numbers
-        continue;
-      }
-      
-      const normalized = normalizePhone(phoneValue);
-      
-      if (!isValidPhone(normalized)) {
-        dupesRemoved++; // Skip invalid phones
-        continue;
-      }
-      
-      // Check against scrub list and batch seen numbers
-      if (!scrubSet.has(normalized) && !batchSeenNumbers.has(normalized)) {
-        batchSeenNumbers.add(normalized);
-        cleanRows.push(row); // Keeps all columns: First Name, Last Name, Email, Phone
-      } else {
-        dupesRemoved++;
-      }
-    }
-    
-    return { cleanRows, originalCount, dupesRemoved };
+    console.log(`Auto-detected phone column: ${phoneColumnName}`);
   }
+  
+  for (const row of parsed.data as Record<string, unknown>[]) {
+    // Skip empty rows
+    if (!row || typeof row !== 'object') continue;
+    
+    originalCount++;
+    const phoneValue = row[phoneColumnName!];
+    
+    if (!phoneValue || String(phoneValue).trim() === '') {
+      dupesRemoved++; // Skip rows without phone numbers
+      continue;
+    }
+    
+    const normalized = normalizePhone(phoneValue);
+    
+    // Reject non-US or invalid phone numbers
+    if (!isValidUSPhone(normalized)) {
+      dupesRemoved++; // Count as removed (invalid/non-US)
+      continue;
+    }
+    
+    // Check against scrub list and batch seen numbers
+    if (!scrubSet.has(normalized) && !batchSeenNumbers.has(normalized)) {
+      batchSeenNumbers.add(normalized);
+      // Store normalized phone in output
+      row[phoneColumnName!] = normalized;
+      cleanRows.push(row);
+    } else {
+      dupesRemoved++;
+    }
+  }
+  
+  return { cleanRows, originalCount, dupesRemoved };
+}
 
 
 
