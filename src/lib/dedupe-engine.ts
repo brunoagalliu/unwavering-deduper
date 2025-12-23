@@ -70,12 +70,15 @@ export function dedupeCSV(
     originalCount++;
     const phoneValue = row[phoneColumnName!];
     
-    if (!phoneValue || String(phoneValue).trim() === '') {
+    // Convert to string and check if empty
+    const phoneString = String(phoneValue || '').trim();
+    
+    if (!phoneString) {
       dupesRemoved++; // Skip rows without phone numbers
       continue;
     }
     
-    const normalized = normalizePhone(phoneValue);
+    const normalized = normalizePhone(phoneString);
     
     // Reject non-US or invalid phone numbers
     if (!isValidUSPhone(normalized)) {
