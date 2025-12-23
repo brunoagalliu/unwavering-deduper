@@ -104,11 +104,13 @@ export async function POST(request: NextRequest) {
     // Upload processed files to Vercel Blob
     console.log('Uploading files to blob storage...');
     const filesToUpload = processedFiles
-      .filter(f => f.status === 'complete' && f.cleanCSV)
-      .map(f => ({
-        name: `clean_${f.name}`,
-        content: f.cleanCSV
-      }));
+    .filter((f): f is typeof f & { cleanCSV: string } => 
+      f.status === 'complete' && !!f.cleanCSV
+    )
+    .map(f => ({
+      name: `clean_${f.name}`,
+      content: f.cleanCSV
+    }));
 
     const uploadedBlobs = await uploadProcessedBatch(filesToUpload, batchId);
     console.log(`Uploaded ${uploadedBlobs.length} files to blob storage`);
